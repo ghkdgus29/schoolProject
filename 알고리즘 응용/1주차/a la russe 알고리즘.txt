@@ -1,0 +1,26 @@
+#include <stdio.h>
+
+
+int a_la_russe(int a, int b) {
+	int sum = 0;
+	while (a > 0) {
+		if (a % 2 == 1) {
+			sum += b;
+		}
+		a = a >> 1; // 2로 나누기
+		b = b << 1; // 2로 곱하기
+	}
+	return sum;
+}
+
+
+
+int main()
+{
+	int A = 45, B = 37;
+	int result = a_la_russe(A, B);
+	printf("%d \n", result);
+	return 0;
+
+}
+

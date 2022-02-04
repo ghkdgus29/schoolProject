@@ -1,0 +1,39 @@
+#include <Windows.h>
+
+
+int a_la_russe(int a, int b) {
+	int sum = 0;
+	while (a > 0) {
+		if (a % 2 == 1) {
+			sum += b;
+		}
+		a = a / 2;
+		b = b * 2;
+	}
+	return sum;
+} // 알고리즘
+		
+
+	
+
+
+int main()
+{
+	LARGE_INTEGER freq, start, stop;
+	double diff;
+
+	QueryPerformanceFrequency(&freq);// computer frequency
+	QueryPerformanceCounter(&start);// starting point
+
+	/* 알고리즘 */
+	int result = a_la_russe(45, 37);
+	printf("%d \n", result);
+	/* 알고리즘 */
+
+	QueryPerformanceCounter(&stop); //stopping point
+	diff = (double)(stop.QuadPart - start.QuadPart) / freq.QuadPart;
+
+	printf("%lf", diff); // 시간출력
+	return 0;
+	
+}
