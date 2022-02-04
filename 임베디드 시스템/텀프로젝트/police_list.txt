@@ -1,0 +1,7 @@
+name	department		plate number
+==================================
+Hyun	Security			2468
+Yoon	Detective			3940
+Jihye	Information		1293
+Yong	Cleaning			7484
+Park	Economy			9238	
