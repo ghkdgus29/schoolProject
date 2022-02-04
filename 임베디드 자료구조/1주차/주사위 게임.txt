@@ -1,0 +1,16 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+	int freq[6] = { 0 };
+	int trial, i;
+
+	printf("주사위 던지기 횟수를 입력하세요 : ");
+	scanf("%d", &trial);
+
+	for (i = 0; i < trial; i++) ++freq[rand() % 6];
+
+	printf("면       빈도\n");
+	for (i = 0; i < 6; i++) printf("%d        %d\n", i + 1, freq[i]);
+	return 0;
+}
