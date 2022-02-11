@@ -1,0 +1,233 @@
+.include "m128def.inc"
+.def	temp	=	r16
+.def	leddata	=	r17
+.def	segen	=	r18
+.def	timecnt	=	r19
+.def	SREG2	=	r20			// status 레지스터를 저장할 레지스터
+.def	segcnt	=	r21
+.def	stopgo	=	r22			// 타이머를 일시정지할지 , 재개할지 설정하는 레지스터, 0이면 중지상태, 1이면 동작상태이다.
+.equ	FCLK	=	16000000
+
+		.ORG 0;
+		rjmp RESET;
+		.ORG 0x000A;
+		jmp EXT_INT4;		외부 인터럽트 4번, 1번 스위치를 누를 경우 동작
+		jmp EXT_INT5;		외부 인터럽트 5번, 2번 스위치를 누를 경우 동작
+		.ORG 0x0020;
+		rjmp TIM0_OVF;      타이머 인터럽트
+		.ORG 0x0046;
+
+RESET:
+	ldi temp, low(RAMEND);
+	out SPL, temp;
+	ldi temp, high(RAMEND);
+	out SPH, temp;					스택포인터 설정
+
+	ser temp;
+	out DDRC, temp;			7segment 모두 사용하기 위한 설정
+
+	ldi temp, $0F;
+	sts DDRG, temp;			4개 숫자판을 모두 출력하기 위한 설정
+
+	cli;			인터럽트 disable
+	rcall Timer0_Init;		타이머 인터럽트 초기화 설정
+	rcall EXINT_Init;		외부 인터럽트 초기화 설정
+	sei;			인터럽트 on
+
+	ldi XH, High(digit4);
+	ldi XL, Low(digit4);	x 레지스터에 digit4 주소를 저장 (인덱싱)
+
+	ldi temp, 0;
+	st X+, temp;
+	ldi temp, 0;
+	st X+, temp;
+	ldi temp, 0;
+	st X+, temp;
+	ldi temp, 0;
+	st X, temp;				인덱싱할 숫자를 차례로 저장한다 (digit4에 저장)
+
+	ldi segen, $08;
+	ldi timecnt, 0;
+	ldi stopgo,	0;			처음엔 타이머 중지상태
+
+forever:
+	ldi XH, High(digit4);
+	ldi XL, Low(digit4);
+
+	clr r0;
+	add XL, segcnt;
+	adc XH, r0;				 segcnt는 인덱싱넘버 자리수를 의미하며 이를 x레지스터에 더하여 1초, 10초, 1분, 10분 인덱싱 정보에 접근한다.
+
+	ldi ZH, HIGH(2*SegData);
+	ldi ZL, LOW(2*SegData);			z레지스터에 7segment를 표시하기 위한 값들이 저장되어 있는 SegData주소를 저장
+
+	ld temp, X;
+	clr r0;
+	add ZL, temp;
+	adc ZH, r0;						z레지스터에 X에 저장되어 있는 인덱싱 넘버를 더함
+
+	lpm leddata, Z;					이렇게 인덱싱 넘버까지 던한 값을 leddata에 저장
+	sts PORTG, segen;				segen값에 해당하는 숫자판 점등
+	out PORTC, leddata;				leddata값에 해당하는 7segment 값을 해당 숫자판에 출력
+
+	rjmp forever;
+		
+Timer0_Init:				// 타이머 인터럽트 초기화 설정
+	ldi temp, $02;
+	out TCCR0, temp;		16MHZ/8로 timer clock 스케일링
+
+	ldi temp, $00;
+	out TCNT0, temp;		인터럽트가 발생하고 나서 타이머를 다시 0으로 초기화
+
+	ldi temp, 01;
+	out TIMSK, temp;		오버플로우 발생시 인터럽트 발생
+	ret;
+
+EXINT_Init:					// 외부 인터럽트 초기화 설정
+	ldi temp, $00;
+	sts EICRA, temp;
+	
+	ldi temp, $0A;
+	sts EICRB, temp;        외부 인터럽트 4번, 5번을 falling edge 인터럽트로 사용
+
+	ldi temp, $30;
+	out EIMSK, temp;		외부 인터럽트 4번 5번을 사용가능하도록 설정
+	ret;
+
+TIM0_OVF:					// 타이머 인터럽트 
+	cli;			인터럽트 disable
+	in SREG2, SREG;
+	push SREG2;				status register 를 스택에 저장
+
+	lsr segen;				segen 우측 쉬프팅, 숫자판 이동
+	inc segcnt;				segcnt(숫자판 자리수) 증가
+	cpi segen, $00;			
+	brne Skip_resetsegen;		segen값이 0이 아니면 이동
+	ldi segen, $08;			segen값이 0이 되면 다시 0x08로 초기화
+	clr segcnt;				숫자판 자리수도 초기화
+
+Skip_resetsegen:			//segen이 0보다 크면	
+	cpi stopgo, 0;			만약 중지상태이면
+	breq DONE;				DONE으로 이동
+	inc timecnt;			
+	cpi timecnt, 78;		// 타이머 인터럽트가 78번 지나지 않으면 (1/100초가 지나지 않으면) 
+	brne DONE;				//  DONE으로 이동 , (아무일이 일어나지 않는다.)
+
+one:						// 1/100초가 지나면 (78번 인터럽트 발생) 4번째 숫자판을 수정
+	clr timecnt;
+	ldi YH, High(digit4);
+	ldi YL, Low(digit4);
+	ldd temp, Y+3;
+	inc temp;				 1/100초에 해당하는 인덱싱 넘버 증가
+	cpi temp, 10;				
+	breq ten;				자리수 증가가 일어나면 ten으로 이동
+	std Y+3, temp;			자리수 증가가 일어나지 않았다면 temp값을 인덱싱 넘버에 저장
+	jmp DONE;
+
+ten:						// 1/10초가 지나면 3번째 숫자판 수정
+	clr temp;
+	std Y+3, temp;			이전 자리수의 인덱싱 넘버는 0으로 초기화
+	ldd temp, Y+2;			자리수를 증가시키고, 그에 해당하는 인덱싱 넘버값을 temp에 저장
+	inc temp;
+	cpi temp, 10;			만약 자리수 증가가 일어나면 hundred로 이동
+	breq hundred;
+	std Y+2, temp;			자리수 증가가 일어나지 않았다면 temp값을 인덱싱 넘버에 저장
+	jmp DONE;
+
+hundred:					//	1초가 지나면 2번째 숫자판 수정
+	clr temp;				hundred, thousand 함수는 위의 one, ten 함수와 동작이 동일하다.
+	std Y+2, temp;
+	ldd temp, Y+1;
+	inc temp;
+	cpi temp, 10;
+	breq thousand;
+	std Y+1, temp;
+	jmp DONE;
+
+thousand:				// 10초가 지나면 1번째 숫자판 수정
+	clr temp;
+	std Y+1, temp;
+	ld temp, Y;
+	inc temp;
+	cpi temp, 6;
+	breq minute;
+	st Y, temp;
+	jmp DONE;
+
+minute:					// 60초가 지나면 모두 0이 된다
+	clr temp;			
+	st Y, temp;			첫번째 숫자판에 해당하는 인덱싱 넘버 초기화
+
+DONE:					// 자리수 증가가 일어나지 않으면 수행
+	pop SREG2;
+	out SREG, SREG2;		status register 를 스택에서 꺼낸다.
+	sei;			인터럽트 on
+	ret;
+
+EXT_INT4:				// 외부 인터럽트 4 , 1번 스위치를 누를 경우 수행
+	cli;			인터럽트 disable
+
+	ldi YH, High(digit4);
+	ldi YL, Low(digit4);		y레지스터에 인덱싱 넘버 주소값 저장
+
+	ldi temp, 200;
+	call delay_Tms;				debouncing 을 고려한 지연함수
+
+	ldi temp, 0;
+	st Y+, temp;
+	ldi temp, 0;
+	st Y+, temp;
+	ldi temp, 0;
+	st Y+, temp;
+	ldi temp, 0;
+	st Y, temp;					인덱싱 넘버값들을 모두 0으로 초기화 -> 타이머 0000초기화됨
+
+	ldi stopgo, 0;				타이머 중지
+
+	sei;			인터럽트 on
+	reti;			스택포인터를 참고하여 메인프로그램 복귀
+
+EXT_INT5:			// 외부 인터럽트 5, 2번 스위치를 누를 경우 수행
+	cli;			인터럽트 disable
+
+	ldi temp, 200;
+	call delay_Tms;				debouncing 을 고려한 지연함수
+
+	inc stopgo;			 stopgo 증가
+	cpi stopgo, 1;		 만약  stopgo가 1이면 타이머 재개
+	breq Go;
+	
+	clr stopgo;			stopgo가 1이 아니면 stopgo를 0으로 초기화 -> 타이머 중지
+	sei;
+	reti;
+Go:
+	sei;			인터럽트 on
+	reti;	
+
+delay_1ms:				// 시간 지연 함수
+	push YL;
+	push YH;
+	ldi YL, low(((FCLK/1000)-18)/4);
+	ldi YH, high(((FCLK/1000)-18)/4);
+
+	loop:
+	sbiw YH:YL, 1;
+	brne loop;
+
+	pop YH;
+	pop YL;
+	ret;
+
+delay_Tms:				// 시간 지연 함수
+	call delay_1ms;
+	dec temp;
+	brne Delay_Tms;
+
+	ret;
+
+SegData:
+	.db $3f, $06, $5b, $4f, $66, $6d, $7d, $07, $7f, $6f
+
+	.DSEG
+digit4:
+	.byte 4
